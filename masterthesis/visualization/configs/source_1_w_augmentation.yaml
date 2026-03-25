@@ -1,0 +1,57 @@
+# Configuration for source_1 w_augmentation experiments
+# Usage: python -m masterthesis.visualization --config visualization/configs/source_1_w_augmentation.yaml
+#
+# This configuration file contains checkpoint paths for ResNet source_1 experiments
+# with data augmentation.
+# Each experiment group contains 3 checkpoint runs for the corresponding split strategy.
+#
+# Split strategies:
+#   - batch: Data split by experimental batch
+#   - plate: Data split by plate IDs  
+#   - well: Data split by well positions
+#   - random: Random data splitting
+#
+# Generated automatically from checkpoint scan on /home/vera/vsc5/data/AI/masterthesis
+
+source: source_1
+architecture: ResNet50_Modified
+augmentation: true
+base_dir: checkpoints
+mappings:
+  labels: source_1_encoding_pert_iname.json
+  plate_ids: source_1_encoding_Metadata_Plate.json
+  well_ids: source_1_encoding_Metadata_Well.json
+  batch_ids: source_1_encoding_Metadata_Batch.json
+splits:
+- batch
+- plate
+- well
+- random
+experiments:
+- split_name: batch
+  npy_paths:
+  - ResNet_source_1_w_augmentation/eager-planet-166_bml3h5vd/Test_evaluation_results.npy
+  - ResNet_source_1_w_augmentation/fanciful-vortex-147_0e3r3wz6/Test_evaluation_results.npy
+  - ResNet_source_1_w_augmentation/visionary-smoke-167_2ouofk44/Test_evaluation_results.npy
+- split_name: plate
+  npy_paths:
+  - ResNet_source_1_w_augmentation/flowing-lion-181_xnnnj15q/Test_evaluation_results.npy
+  - ResNet_source_1_w_augmentation/revived-music-180_xvac10ze/Test_evaluation_results.npy
+  - ResNet_source_1_w_augmentation/sandy-yogurt-182_fwbitgwz/Test_evaluation_results.npy
+- split_name: well
+  npy_paths:
+  - ResNet_source_1_w_augmentation/stoic-sunset-177_ymbwrx92/Test_evaluation_results.npy
+  - ResNet_source_1_w_augmentation/swift-hill-183_zd2s23ol/Test_evaluation_results.npy
+  - ResNet_source_1_w_augmentation/zany-firefly-179_2xte83hw/Test_evaluation_results.npy
+- split_name: random
+  npy_paths:
+  - ResNet_source_1_w_augmentation/eager-frost-172_5tdkb79k/Test_evaluation_results.npy
+  - ResNet_source_1_w_augmentation/fast-sea-173_2z242qrp/Test_evaluation_results.npy
+  - ResNet_source_1_w_augmentation/skilled-aardvark-171_nkt0na42/Test_evaluation_results.npy
+plot_settings:
+  figsize:
+  - 12
+  - 12
+  dpi: 150
+  show_replicate_points: true
+  show_std: true

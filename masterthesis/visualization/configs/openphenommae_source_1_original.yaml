@@ -1,0 +1,57 @@
+# Configuration for OpenPhenomMAE source_1 original experiments
+# Usage: python -m masterthesis.visualization --config masterthesis/visualization/configs/openphenommae_source_1_original.yaml
+#
+# This configuration file contains checkpoint paths for OpenPhenomMAE source_1 experiments
+# without data augmentation.
+# Each experiment group contains 3 checkpoint runs for the corresponding split strategy.
+#
+# Split strategies:
+#   - batch: Data split by experimental batch
+#   - plate: Data split by plate IDs
+#   - well: Data split by well positions
+#   - random: Random data splitting
+#
+# Generated automatically from checkpoint scan on /home/vera/vsc5/data/AI/masterthesis
+
+source: source_1
+architecture: OpenPhenomMAE
+augmentation: false
+base_dir: checkpoints
+mappings:
+  labels: source_1_encoding_pert_iname.json
+  plate_ids: source_1_encoding_Metadata_Plate.json
+  well_ids: source_1_encoding_Metadata_Well.json
+  batch_ids: source_1_encoding_Metadata_Batch.json
+splits:
+- batch
+- plate
+- well
+- random
+experiments:
+- split_name: batch
+  npy_paths:
+  - Openommae_source_1_original/rich-gorge-350_4v5pgdh4/Test_evaluation_results.npy
+  - Openommae_source_1_original/easy-cloud-351_evwnzpx4/Test_evaluation_results.npy
+  - Openommae_source_1_original/avid-water-352_lx9qjjho/Test_evaluation_results.npy
+- split_name: plate
+  npy_paths:
+  - Openommae_source_1_original/efficient-glitter-353_r79sqt9w/Test_evaluation_results.npy
+  - Openommae_source_1_original/chocolate-brook-354_stj1egol/Test_evaluation_results.npy
+  - Openommae_source_1_original/wise-aardvark-355_5lrdrjlm/Test_evaluation_results.npy
+- split_name: well
+  npy_paths:
+  - Openommae_source_1_original/dainty-plasma-356_fxi6j202/Test_evaluation_results.npy
+  - Openommae_source_1_original/apricot-haze-357_667iyoaj/Test_evaluation_results.npy
+  - Openommae_source_1_original/avid-capybara-358_jyw5huu6/Test_evaluation_results.npy
+- split_name: random
+  npy_paths:
+  - Openommae_source_1_original/robust-monkey-359_fwys9bzt/Test_evaluation_results.npy
+  - Openommae_source_1_original/woven-bush-360_77vtv42d/Test_evaluation_results.npy
+  - Openommae_source_1_original/clean-cloud-361_sa90v2ej/Test_evaluation_results.npy
+plot_settings:
+  figsize:
+  - 12
+  - 12
+  dpi: 150
+  show_replicate_points: true
+  show_std: true

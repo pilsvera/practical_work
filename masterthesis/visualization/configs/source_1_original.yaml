@@ -1,0 +1,57 @@
+# Configuration for source_1 original experiments
+# Usage: python -m masterthesis.visualization --config visualization/configs/source_1_original.yaml
+#
+# This configuration file contains checkpoint paths for ResNet source_1 experiments
+# without data augmentation.
+# Each experiment group contains 3 checkpoint runs for the corresponding split strategy.
+#
+# Split strategies:
+#   - batch: Data split by experimental batch
+#   - plate: Data split by plate IDs  
+#   - well: Data split by well positions
+#   - random: Random data splitting
+#
+# Generated automatically from checkpoint scan on /home/vera/vsc5/data/AI/masterthesis
+
+source: source_1
+architecture: ResNet50_Modified
+augmentation: false
+base_dir: checkpoints
+mappings:
+  labels: source_1_encoding_pert_iname.json
+  plate_ids: source_1_encoding_Metadata_Plate.json
+  well_ids: source_1_encoding_Metadata_Well.json
+  batch_ids: source_1_encoding_Metadata_Batch.json
+splits:
+- batch
+- plate
+- well
+- random
+experiments:
+- split_name: batch
+  npy_paths:
+  - ResNet_source_1_original/confused-thunder-194_isfgcdyv/Test_evaluation_results.npy
+  - ResNet_source_1_original/cosmic-dew-74_mdmiyg8i/Test_evaluation_results.npy
+  - ResNet_source_1_original/jumping-silence-134_3578niio/Test_evaluation_results.npy
+- split_name: plate
+  npy_paths:
+  - ResNet_source_1_original/dauntless-snowflake-73_ubsp13ye/Test_evaluation_results.npy
+  - ResNet_source_1_original/logical-salad-190_pd3fb2qb/Test_evaluation_results.npy
+  - ResNet_source_1_original/swept-violet-191_rer8aqr0/Test_evaluation_results.npy
+- split_name: well
+  npy_paths:
+  - ResNet_source_1_original/devoted-smoke-192_f121pdct/Test_evaluation_results.npy
+  - ResNet_source_1_original/scarlet-dust-195_n5a28498/Test_evaluation_results.npy
+  - ResNet_source_1_original/woven-donkey-75_t9sq5xeb/Test_evaluation_results.npy
+- split_name: random
+  npy_paths:
+  - ResNet_source_1_original/breezy-capybara-76_moim679x/Test_evaluation_results.npy
+  - ResNet_source_1_original/desert-monkey-184_bfqto8os/Test_evaluation_results.npy
+  - ResNet_source_1_original/scarlet-cosmos-185_572tkedh/Test_evaluation_results.npy
+plot_settings:
+  figsize:
+  - 12
+  - 12
+  dpi: 150
+  show_replicate_points: true
+  show_std: true

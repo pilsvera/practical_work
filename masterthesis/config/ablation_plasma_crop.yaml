@@ -1,0 +1,12 @@
+# Ablation base config with plasma_shadow + RandomResizedCrop nested keys.
+# CLI args override flat augmentation keys; this file provides the nested ones.
+augmentation:
+  resize: [224, 224]
+  RandomResizedCrop:
+    scale: [0.5, 1.0]
+    ratio: [1, 1]
+    prob: 0.5
+  plasma_shadow:
+    shadow_intensity_range: [0.3, 0.7]
+    roughness: 3.0
+    prob: 0.5

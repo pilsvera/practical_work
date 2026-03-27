@@ -135,7 +135,6 @@ class CheckpointManager:
         }
     
         self._atomic_save(payload, checkpoint_path)
-        print(f"Model checkpoint saved at {checkpoint_path}")
 
     def archive_checkpoints(self):
         """
@@ -166,7 +165,6 @@ class CheckpointManager:
         """Save evaluation records (predictions, confidences, metadata) as .npy."""
         output_path = os.path.join(f"{self.base_dir}", f"{phase}_evaluation_results.npy")
         np.save(output_path, records)
-        print(f"Results saved to {output_path}")
 
     def save_checkpoint_test(self, model, model_class, loss=None):
         """Save a test-phase checkpoint (model weights + test loss only)."""
@@ -175,7 +173,6 @@ class CheckpointManager:
             'model_state_dict': model.state_dict(),
             'loss': loss,
         }, checkpoint_path)
-        print(f"Model checkpoint saved at {checkpoint_path}")
 
         
 

@@ -10,7 +10,7 @@ import albumentations as A
 import tifffile as tiff
 from abc import ABC, abstractmethod
 import json
-from custom_meanstd import MeanStd
+from config.custom_meanstd import MeanStd
 from mm_logging import get_git_hash
 
 class BuildIndex:
@@ -44,9 +44,8 @@ class BuildIndex:
         '''
         Merges the index with a positive control annotation file.
         '''
-        named_df = pd.read_csv(self.named_path, sep='\t')
+        named_df = pd.read_csv(self.named_path)
         df = df.merge(named_df, left_on='Metadata_JCP2022', right_on='jcp2022_id', how='left')
-        print(df.columns)
         return df
     
     def _encode_categorical_to_numerical(self, df: pd.DataFrame, column) -> pd.DataFrame:
@@ -71,7 +70,6 @@ class BuildIndex:
         filename = f"{src}_encoding{self.is_neg}_{column}.json"
         with open(filename, "w") as f:
             json.dump(encoding_dict, f)
-        print(f"Encoding saved to {filename}")
 
 
     def _save_df(self, df: pd.DataFrame):
@@ -83,7 +81,6 @@ class BuildIndex:
         else:
             filename = f"{self.source_types}{self.is_neg}.pq"
         df.to_parquet(filename, index=False)
-        print(f"DataFrame saved to {filename}")
 
 
     def build_index(self) -> tuple[pd.DataFrame, int]:
@@ -275,7 +272,10 @@ class FiveChannelAlbumentations:
         self.mean = self.mean_std.mean
         self.std = self.mean_std.std
         self.pipeline = self._build_pipeline()
-        print(f"Built albumentations pipeline {mode}:", self.pipeline)
+        if self.mode == "train":
+            names = [f"{t.__class__.__name__}(p={t.p})" for t in self.pipeline.transforms if t.__class__.__name__ != "Resize"]
+            if names:
+                print(f"  Augmentations: {', '.join(names)}")
 
     def _build_pipeline(self):
         """Constructs the albumentations pipeline from the config."""
@@ -386,11 +386,7 @@ class Splits(ABC):
     def _print_split_info(self, train_keys, eval_keys, test_keys):
         """Log the fraction of samples in each split."""
         total_keys = len(train_keys) + len(eval_keys) + len(test_keys)        
-        print("Train keys: %.2f | Eval keys: %.2f | Test keys: %.2f" % (            
-            len(train_keys) / total_keys,            
-            len(eval_keys) / total_keys,            
-            len(test_keys) / total_keys        
-            ))
+        print(f"  Splits: train {len(train_keys)/total_keys:.0%} | val {len(eval_keys)/total_keys:.0%} | test {len(test_keys)/total_keys:.0%}")
 
 
 class BatchwiseSplits(Splits):
@@ -540,7 +536,6 @@ class SplitManager:
 
         with open(self.path, "w") as f:
             json.dump(split_info, f, indent=2)
-        print(f"Split keys saved to: {self.path}")
 
     def load_split_keys(self) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Restore train/val/test DataFrames from a previously saved split_keys.json."""

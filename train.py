@@ -4,6 +4,9 @@ _tf = types.ModuleType("tensorflow"); _tf.__version__ = "0.0.0"
 _tf.__spec__ = importlib.machinery.ModuleSpec("tensorflow", None)
 sys.modules["tensorflow"] = _tf
 
+import warnings
+warnings.filterwarnings("ignore", message="input's size at dim=1 does not match num_features")
+
 import argparse
 import itertools
 import os
@@ -249,6 +252,7 @@ def args_to_config(args):
 
         
 class BuildComponents:
+    """Factory that builds datasets, dataloaders, models, optimizers, and loss from config."""
     def __init__(self, config: dict):
         self.wandb_id = wandb.run.id
         self.wandb_name = wandb.run.name
@@ -260,6 +264,7 @@ class BuildComponents:
         self.image_path = self.config["image_path"]
 
     def _set_seed(self, seed=42):
+        """Set all random seeds for reproducibility."""
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -269,8 +274,8 @@ class BuildComponents:
         torch.backends.cuda.matmul.allow_tf32 = True
 
     def index(self):
+        """Load or build the sample index DataFrame."""
         if self.config.get("synthetic", False):
-            print("Using synthetic dataset")
             self.df = pd.DataFrame({"pert_iname": list(range(8))})
 
         elif self.config.get("embedding_mode", False):
@@ -314,18 +319,18 @@ class BuildComponents:
             if "pert_iname" in self.df.columns:
                 self.df["pert_iname"] = self.df["pert_iname"].astype(int)
 
-            print(f"Loaded transformed embeddings from {emb_path}")
+            print(f"  Embeddings: {emb_path}")
 
         else:
             path = self.config.get("source_parquet") or (self.config["source_types"] + ".pq")
 
             if os.path.exists(path):
-                print(f"Loading index from {path}")
+                print(f"  Index: {path}")
                 self.df = pd.read_parquet(path, engine="fastparquet")
                 if "Metadata_Sample_ID" in self.df.columns:
                     self.df["Metadata_Sample_ID"] = self.df["Metadata_Sample_ID"].astype(str)
             else:
-                print(f"Index file {path} not found, building index from scratch.")
+                print(f"  Index {path} not found, building from scratch...")
                 self.df = BuildIndex(self.config["source_types"], self.config["index"],
                                      named_path=self.config.get("pos_ctrl_name", "pos_ctrl_name.csv")).dataset
                 assert self.df is not None and len(self.df) > 0, "BuildIndex returned empty dataframe"
@@ -333,9 +338,11 @@ class BuildComponents:
         return self.df
     
     def dataset(self):
+        """Return the index DataFrame, loading it if needed."""
         return self.df if self.df is not None else self.index()
 
     def dataloaders(self, train_keys, eval_keys, test_keys):
+        """Build train/val/test DataLoaders from split DataFrames."""
         num_workers = self.config.get("num_workers", 0)
         batch_size  = self.config.get("batch_size", 32)
 
@@ -378,19 +385,19 @@ class BuildComponents:
             return None, None, test_loader
 
         if self.config.get("synthetic", False):
-            print("Using synthetic dataset")
             train_dataset = SyntheticDataset(10000, 8, [5, 224, 224])
             eval_dataset  = SyntheticDataset(1000, 8, [5, 224, 224])
             test_dataset  = SyntheticDataset(1000, 8, [5, 224, 224])
 
 
-        else: 
-            print("Using CellPaintingDataset")
-            transform_train = FiveChannelAlbumentations(self.config["augmentation"], "train")
+        else:
             transform_test = FiveChannelAlbumentations(self.config["augmentation"], "test")
-            
+            if self.config.get("inference", False):
+                transform_train = transform_test
+            else:
+                transform_train = FiveChannelAlbumentations(self.config["augmentation"], "train")
+
             DatasetClass = MiniDataset if self.config.get("debug_mode", False) else CellPaintingDataset
-            print("⚠️  Debug mode activated: Using MiniDataset with reduced sample size.") if self.config.get("debug_mode", False) else print("Using full dataset.")
 
             train_dataset = DatasetClass(self.image_path, train_keys, transform=transform_train)
             eval_dataset = DatasetClass(self.image_path, eval_keys, transform=transform_test)
@@ -402,7 +409,6 @@ class BuildComponents:
             eval_dataset  = WithIndex(eval_dataset) 
             test_dataset = WithIndex(test_dataset)   
 
-        print(f"Creating DataLoaders with batch size {batch_size} and {num_workers} workers")
         train_loader = DataLoader(train_dataset, 
                                   batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=(num_workers > 0), pin_memory=True)
         eval_loader = DataLoader(eval_dataset, 
@@ -417,32 +423,30 @@ class BuildComponents:
         return train_loader, eval_loader, test_loader
     
     def model(self):
+        """Instantiate the model based on config architecture."""
         if self.config.get("synthetic", False):
             num_classes = 7
         else: 
             num_classes = len(self.df["pert_iname"].unique())
 
         if self.config.get("embedding_mode", False):
-            print(f"Using LinearOnEmbeddings")
             embedding_columns = [col for col in self.df.columns if re.fullmatch(r"\d+", str(col))]
             in_dim = len(embedding_columns)
             return LinearOnEmbeddings(in_dim, num_classes).to(self.device)
         
         arch = self.config.get("architecture", "ResNet50_Modified")
         if arch == "ResNet50_Modified":
-            print("Using ResNet50_Modified architecture")
             model = ResNet50_Modified(num_classes, pretrained= self.config["pretrained"], freeze_encoder=self.config["freeze"], return_channelwise_embeddings=self.config["return_channelwise_embeddings"], embedding_mode="joint")
         elif arch == "MultiChannelResNet50":
-            print("Using MultiChannelResNet50 architecture")
             model = MultiChannelResNet50(num_classes)
         elif arch == "OpenPhenomMAE":
-            print("Using OpenPhenomMAE architecture")
             model = OpenPhenomMAE(num_classes=num_classes, freeze_encoder=self.config["freeze"], return_channelwise_embeddings=self.config["return_channelwise_embeddings"])
         else:
             raise ValueError(f"Unknown architecture {arch}")
         return model.to(self.device)
 
     def optimizer(self, model):
+        """Create optimizer and LR scheduler."""
         weight_decay    = self.config.get("weight_decay", 0.0)
         warmup_epochs   = self.config.get("lr_warmup_epochs", 0)
 
@@ -477,12 +481,14 @@ class BuildComponents:
             return optimizer, scheduler
 
     def criterion(self):
+        """Create the loss function."""
         return torch.nn.CrossEntropyLoss(
             label_smoothing=self.config.get("label_smoothing", 0.0)
         )
 
 
 class Trainer:
+    """Handles the training loop, evaluation, checkpoint saving, and early stopping."""
     def __init__(self, model, optimizer, criterion, device, config, run_name, wandb_id, ckpt=None):
         self.model = model
         self.optimizer = optimizer
@@ -505,6 +511,7 @@ class Trainer:
 
 
     def training(self, train_loader, epoch, num_epochs):
+        """Run one training epoch."""
         self.model.train()
         if self.config["lr_scheduler"] == "auto":
             self.optimizer.train()
@@ -514,7 +521,7 @@ class Trainer:
         running_loss = 0.0
         is_image_mode = not (self.config.get("embedding_mode", False) or self.config.get("synthetic", False))
 
-        for batch_idx, (images, labels, *_) in enumerate(tqdm(train_loader, desc=f"Epoch {epoch}/{num_epochs}")):
+        for batch_idx, (images, labels, *_) in enumerate(train_loader):
             if is_image_mode:
                 images = images.to(self.device, non_blocking=True).to(memory_format=torch.channels_last)
             else:   
@@ -542,14 +549,14 @@ class Trainer:
             running_loss += loss.item()
 
         avg_loss = running_loss / len(train_loader)
-        print(f"Epoch [{epoch}/{num_epochs}], Train Loss: {avg_loss:.4f}")
+        self._last_train_loss = avg_loss
         wandb.log({"Epoch": epoch, "Train Loss": avg_loss, "Learning Rate": self.optimizer.param_groups[0]['lr']})
 
         if epoch % 5 == 0 and epoch != 0:
-            print(f"Saving checkpoint at epoch {epoch}")
             self.ckpt.save_checkpoint(self.model, epoch, self.config["architecture"], self.optimizer, loss=avg_loss)
 
     def evaluate(self, loader, epoch, num_epochs, phase="Validation", save_embeddings=False):
+        """Run evaluation, optionally saving embeddings. Returns True if early stopping triggered."""
         self.model.eval()
         if self.config["lr_scheduler"] == "auto":
             self.optimizer.eval()
@@ -559,8 +566,6 @@ class Trainer:
         all_preds, all_labels = [], []
         record_array = []
    
-        if self.config.get("return_channelwise_embeddings", False):
-            print("Returning channelwise embeddings")
         emb_list, name_list, id_list, ytrue_list, ypred_list = [], [], [], [], []
 
         def _to_np1d(x, dtype=None):
@@ -661,11 +666,12 @@ class Trainer:
             }
             out_path = os.path.join(out_dir, f"{phase.lower()}_channelwise_embeddings.npz")
             np.savez_compressed(out_path, **payload)
-            print(f"Saved channelwise embeddings to {out_path}")
+            tqdm.write(f"Saved channelwise embeddings to {out_path}")
         
         acc = correct / max(1, total)
         avg_loss = loss_total / max(1, len(loader))
-        print(f"Epoch [{epoch}/{num_epochs}], {phase} Loss: {avg_loss:.4f}, Accuracy: {acc:.4f}")
+        self._last_eval_loss = avg_loss
+        self._last_eval_acc = acc
 
         metric = avg_loss if self.early_stopping_metric == "Validation Loss" else acc
         improved = False
@@ -694,10 +700,10 @@ class Trainer:
 
         if phase == "Test":
             self.ckpt.save_checkpoint_test(self.model, self.config["architecture"], loss=avg_loss)
-            print(f"Test Loss: {avg_loss:.4f}")
+            tqdm.write(f"Test Loss: {avg_loss:.4f}, Accuracy: {acc:.4f}")
 
         if self.epochs_since_improvement >= self.early_stopping_patience:
-            print(f"Early stopping triggered at epoch {epoch} — no improvement in {self.early_stopping_patience} epochs.")
+            tqdm.write(f"Early stopping at epoch {epoch} — no improvement in {self.early_stopping_patience} epochs.")
             return True
 
         return False
@@ -728,9 +734,9 @@ def main():
         if resume_weights:
             checkpoint = torch.load(checkpoint_path)
             start_epoch = checkpoint['epoch'] + 1
-            print(f"🔄 Resuming from checkpoint: {checkpoint_path}, run_name: {run_name}, wandb_id: {wandb_id}")
+            print(f"  Resuming from: {checkpoint_path}")
         else:
-            print(f"Resuming an existing wandb run {run_name} without loading weights (-> TVN mode).")
+            print(f"  Resuming W&B run {run_name} (no weight loading)")
 
 
     wandb.init(entity="pilsvera", project="mm", config=config, name=run_name, id=wandb_id, resume="allow")
@@ -740,7 +746,13 @@ def main():
     wandb_id = wandb.run.id
     assert wandb.run is not None, "wandb.run not initialized"
     assert wandb.run.id and wandb.run.name, "wandb id/name missing"
-    print(f"Architecture: {wandb.config.get('architecture', 'unknown')}")
+
+    print(f"\n{'=' * 60}")
+    print(f"  RUN: {run_name}  ({wandb_id})")
+    print(f"  Architecture: {wandb.config.get('architecture', 'unknown')}")
+    print(f"  Split: {config['splits']}  |  Seed: {config['seed']}  |  Epochs: {config['epochs']}")
+    print(f"  LR: {config['lr']}  |  Batch size: {config['batch_size']}")
+    print(f"{'=' * 60}")
 
     # When resuming from a grouped checkpoint layout (e.g. checkpoints/group/run_id/),
     # use the same parent dir so outputs land next to the original checkpoint.
@@ -774,7 +786,7 @@ def main():
 
         if config.get("resume", False):
             train_df, eval_df, test_df = split_manager.load_split_keys()
-            print(f"Loading existing data splits from {split_manager.path}")
+            print(f"  Loaded splits from {split_manager.path}")
             strategy = split_manager.load_split_strategy()
             if strategy != config["splits"]:
                 raise ValueError(f"Splits strategy mismatch: {strategy} != {config['splits']}")
@@ -803,15 +815,14 @@ def main():
             # Check classifier shape match
             if "classifier.weight" in migrated and "classifier.weight" in sd_new:
                 if sd_new["classifier.weight"].shape != migrated["classifier.weight"].shape:
-                    print("⚠️ Classifier shape mismatch; keeping randomly initialized classifier.")
-                    print("⚠️ Skipping optimizer state load due to shape mismatch.")
+                    print("  Warning: classifier shape mismatch, using fresh initialization")
                     migrated = {}
                     skip_optimizer_load = True
             if migrated:
                 incomp = model.load_state_dict(migrated, strict=False)
-                print(f"Loaded MAE classifier: {list(migrated.keys())}")
+                print(f"  Loaded MAE classifier weights")
             else:
-                print("No classifier weights loaded (using fresh initialization)")
+                print("  No classifier weights found, using fresh initialization")
                 incomp = type('obj', (object,), {'missing_keys': [], 'unexpected_keys': []})()
         else:
             # ResNet loading logic
@@ -823,17 +834,20 @@ def main():
                     migrated[k] = v
 
             if "fc.weight" in migrated and "fc.weight" in sd_new and sd_new["fc.weight"].shape != migrated["fc.weight"].shape:
-                print("⚠️ Classifier shape mismatch; keeping randomly initialized fc.")
+                print("  Warning: classifier shape mismatch, using fresh initialization")
                 migrated.pop("fc.weight", None); migrated.pop("fc.bias", None)
 
             incomp = model.load_state_dict(migrated, strict=False)
-            print("Loaded with:", "missing:", incomp.missing_keys, "unexpected:", incomp.unexpected_keys)
+            if incomp.missing_keys or incomp.unexpected_keys:
+                print(f"  Loaded weights (missing: {len(incomp.missing_keys)}, unexpected: {len(incomp.unexpected_keys)})")
+            else:
+                print("  Loaded all weights successfully")
 
         if not skip_optimizer_load:
             try:
                 optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
             except Exception as e:
-                print(f"Skipping optimizer state load: {e}")
+                print(f"  Skipping optimizer state: {e}")
 
         if scheduler and 'scheduler_state_dict' in checkpoint:
             scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
@@ -842,12 +856,11 @@ def main():
         start_epoch = checkpoint.get('epoch', -1) + 1
         # sanity: same model type & shapes
         incomp = model.load_state_dict(checkpoint["model_state_dict"], strict=False)
-        print("Loaded TVN linear head; missing:", incomp.missing_keys, "unexpected:", incomp.unexpected_keys)
+        print(f"  Loaded TVN linear head")
         try:
             optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         except Exception as e:
-            print(f"Skipping optimizer load: {e}")
-            print(f"Resuming W&B run only (embedding_mode=True).")
+            print(f"  Skipping optimizer state: {e}")
 
    
     trainer = Trainer(model, optimizer, criterion, builder.device, config, run_name, wandb_id, ckpt)
@@ -856,7 +869,8 @@ def main():
 
     if not config["inference"] and not config.get("return_channelwise_embeddings", False):
 
-        for epoch in tqdm(range(start_epoch, num_epochs)):
+        pbar = tqdm(range(start_epoch, num_epochs), desc="Training")
+        for epoch in pbar:
             trainer.training(train_loader, epoch, num_epochs)
             if config.get("lr_scheduler") == "auto":       # using schedulefree
                 trainer.optimizer.eval()                   # schedulefree requirement
@@ -865,13 +879,18 @@ def main():
                     for x, *_ in itertools.islice(train_loader, min(50, len(train_loader))):
                         x = x.to(trainer.device, non_blocking=True)
                         _ = trainer.model(x)               # forward only; no loss/step
-                trainer.model.eval()          
+                trainer.model.eval()
             if trainer.evaluate(eval_loader, epoch, num_epochs, phase="Validation", save_embeddings=False):
                 break
-        print("Training complete.")
+            pbar.set_postfix(
+                train_loss=f"{trainer._last_train_loss:.4f}",
+                val_loss=f"{trainer._last_eval_loss:.4f}",
+                val_acc=f"{trainer._last_eval_acc:.4f}"
+            )
+        tqdm.write("Training complete.")
     
     elif config.get("return_channelwise_embeddings", False):
-        print("Dumping channelwise embeddings for train/val splits")
+        print("\n  Extracting channelwise embeddings...")
         trainer.evaluate(train_loader, start_epoch, num_epochs, phase="Train",
                          save_embeddings=True)
         trainer.evaluate(eval_loader,  start_epoch, num_epochs, phase="Validation",
@@ -881,7 +900,7 @@ def main():
 
     else: 
         start_epoch = num_epochs
-        print("Running inference on test set")
+        print("\n  Running inference on test set...")
         if config.get("lr_scheduler") == "auto" and (train_loader is not None):
             trainer.optimizer.eval()
             trainer.model.train()
@@ -901,14 +920,16 @@ def main():
 
 
 if __name__ == "__main__":
-    print("PyTorch:", torch.__version__, "CUDA build:", torch.version.cuda)
-    print("CUDA available:", torch.cuda.is_available())
-    print("GPU count:", torch.cuda.device_count())
-    print("Current device idx:", torch.cuda.current_device() if torch.cuda.is_available() else None)
-    print("CUDA_VISIBLE_DEVICES:", os.environ.get("CUDA_VISIBLE_DEVICES"))
-    print("cuDNN available:", torch.backends.cudnn.is_available())
+    print("=" * 60)
+    print("  SYSTEM")
+    print("=" * 60)
+    print(f"  PyTorch {torch.__version__}  |  CUDA build {torch.version.cuda}")
+    print(f"  CUDA: {'yes' if torch.cuda.is_available() else 'no'}  |  GPUs: {torch.cuda.device_count()}  |  cuDNN: {'yes' if torch.backends.cudnn.is_available() else 'no'}")
+    if torch.cuda.is_available():
+        print(f"  Device: {torch.cuda.current_device()}  |  CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'not set')}")
+    print("=" * 60)
     if not torch.cuda.is_available():
-        print("No CUDA available")
+        print("  No CUDA available — exiting.")
     else:
         main()
 

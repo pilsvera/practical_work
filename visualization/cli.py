@@ -2,8 +2,8 @@
 Command-line interface for the visualization pipeline.
 
 Usage:
-    python -m masterthesis.visualization --config configs/source_3.yaml
-    python -m masterthesis.visualization --config configs/source_3.yaml --plots error_rate accuracy
+    python -m visualization --config visualization/configs/source_3.yaml
+    python -m visualization --config visualization/configs/source_3.yaml --plots error_rate accuracy
 """
 
 import argparse

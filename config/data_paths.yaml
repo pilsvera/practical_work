@@ -8,13 +8,13 @@ index: all_sources.pq
 # Source-specific parquet — pre-filtered index for the chosen source
 # If this file exists, train.py loads it directly (faster startup).
 # If not, it is auto-generated from the master index + pos_ctrl_name.
-source_parquet: 
+source_parquet:
 
 # Positive control annotations — tab-separated, maps jcp2022_id to compound names
 pos_ctrl_name: pos_ctrl_name.csv
 
 # Image directory — contains 5-channel TIFF Cell Painting images
-image_path: masterthesis/source_1/
+image_path: ../masterthesis/source_1/
 
 # Label encoding JSONs — auto-generated on first run, one per categorical column
 # These are written next to source_parquet. No action needed unless you move files.
@@ -23,5 +23,4 @@ encoding_dir: .
 # Checkpoints output directory
 checkpoint_dir: checkpoints
 
-# Pre-computed embeddings (only for --embedding-mode)
-embeddings_path: ""
+

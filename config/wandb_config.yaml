@@ -18,7 +18,7 @@ lr_scheduler: auto # or cosine or step
 weight_decay: 0.01
 label_smoothing: 0.1
 lr_warmup_epochs: 5  # linear warmup before cosine decay (cosine scheduler only)
-architecture: OpenPhenomMAE # ResNet50_Modified or OpenPhenomMAE or MultiChannel
+architecture: ResNet50_Modified # ResNet50_Modified or OpenPhenomMAE or MultiChannel
 early_stopping_metric: Accuracy
 early_stopping_patience: 10
 epochs: 100

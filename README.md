@@ -8,7 +8,6 @@ Training pipeline for fine-tuning deep learning models (OpenPhenomMAE, ResNet50)
 practical_work/
 ├── train.py                # Entry point: training, evaluation, embedding extraction
 ├── dataset.py              # Dataset classes, splits, augmentations, index building
-├── custom_meanstd.py       # Per-source channel mean/std statistics
 ├── mm_logging.py           # Checkpoint management and git hash tracking
 ├── mae/                    # OpenPhenomMAE model package
 │   ├── model.py            # Model wrappers (OpenPhenomMAE, ResNet50, MultiChannel)
@@ -22,6 +21,7 @@ practical_work/
 │   ├── wandb_config.yaml   # Default training configuration
 │   ├── data_paths.yaml     # Data file paths (edit before first run)
 │   ├── check.py            # Config validation and auto-fix rules
+│   ├── custom_meanstd.py   # Per-source channel mean/std statistics
 │   └── environment.yaml    # Conda environment specification
 └── visualization/          # Post-training visualization pipeline
     ├── cli.py              # CLI: python -m visualization --config ...
@@ -64,8 +64,7 @@ pos_ctrl_name: pos_ctrl_name.csv
 # Directory with 5-channel TIFF Cell Painting images
 image_path: masterthesis/source_3/
 
-# Pre-computed embeddings (only for --embedding-mode)
-embeddings_path: ""
+
 ```
 
 train.py reads these paths at startup. CLI arguments (`--index`, `--image-path`, etc.) override them.
@@ -111,8 +110,6 @@ python train.py --horizontal-flip-prob 0 --vertical-flip-prob 0 --rotation-prob 
 # Resume from checkpoint
 python train.py --resume --checkpoint path/to/model.pth
 
-# Extract channelwise embeddings (for downstream batch correction)
-python train.py --return-channelwise-embeddings true --freeze
 ```
 
 ### Using a custom config file

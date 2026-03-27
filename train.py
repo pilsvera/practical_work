@@ -21,16 +21,10 @@ from torch.utils.data import DataLoader
 from sklearn.metrics import classification_report
 import tarfile
 import matplotlib.pyplot as plt
-try:
-    from gradcam import GradCAMVisualizer
-    _HAS_GRADCAM = True
-except ImportError:
-    _HAS_GRADCAM = False
-from model import LinearOnEmbeddings, ResNet50_Modified, MultiChannelResNet50, OpenPhenomMAE
+from mae import LinearOnEmbeddings, ResNet50_Modified, MultiChannelResNet50, OpenPhenomMAE
 from dataset import CellPaintingDataset, FiveChannelAlbumentations, BuildIndex, \
     SplitManager, MiniDataset, TVNEmbeddingDataset, SyntheticDataset, WithIndex
 import schedulefree
-from topK import TopKSelector
 from mm_logging import CheckpointManager
 from config.check import validate_config
 
@@ -43,6 +37,14 @@ def parse_args():
     if os.path.exists(default_config_path):
         with open(default_config_path) as f:
             defaults = yaml.safe_load(f) or {}
+
+    # Load data paths (overrides defaults for path-related keys)
+    data_paths_file = os.path.join(os.path.dirname(__file__), "config", "data_paths.yaml")
+    if os.path.exists(data_paths_file):
+        with open(data_paths_file) as f:
+            data_paths = yaml.safe_load(f) or {}
+    else:
+        data_paths = {}
 
     parser = argparse.ArgumentParser(
         description="Train cell painting classification models",
@@ -59,9 +61,9 @@ def parse_args():
                         help="Normalization statistics to use")
     parser.add_argument("--source-types", type=str, default=defaults.get("source_types", "source_3_w_neg"),
                         help="Source type for data loading")
-    parser.add_argument("--index", type=str, default=defaults.get("index", "all_sources.pq"),
+    parser.add_argument("--index", type=str, default=data_paths.get("index", defaults.get("index", "all_sources.pq")),
                         help="Index file for data")
-    parser.add_argument("--image-path", type=str, default=defaults.get("image_path", "masterthesis/source_3/"),
+    parser.add_argument("--image-path", type=str, default=data_paths.get("image_path", defaults.get("image_path", "masterthesis/source_3/")),
                         help="Path to image directory")
 
     # Mode settings
@@ -73,8 +75,6 @@ def parse_args():
                         help="Train linear probe on pre-computed embeddings")
     parser.add_argument("--inference", action="store_true", default=defaults.get("inference", False),
                         help="Run inference on test set only")
-    parser.add_argument("--gradcam", action="store_true", default=defaults.get("gradcam", False),
-                        help="Generate Grad-CAM visualizations")
     parser.add_argument("--records", action="store_true", default=defaults.get("records", False),
                         help="Save prediction records for statistics")
     parser.add_argument("--return-channelwise-embeddings", type=lambda x: x.lower() == 'true',
@@ -100,7 +100,7 @@ def parse_args():
                         help="Resume from checkpoint")
     parser.add_argument("--checkpoint", type=str, default=defaults.get("checkpoint", ""),
                         help="Path to checkpoint file for resuming")
-    parser.add_argument("--embeddings-path", type=str, default=defaults.get("embeddings_path", ""),
+    parser.add_argument("--embeddings-path", type=str, default=data_paths.get("embeddings_path", defaults.get("embeddings_path", "")),
                         help="Path to embeddings .npz file (embedding mode)")
 
     # Training hyperparameters
@@ -180,18 +180,28 @@ def args_to_config(args):
             with open(default_path) as f:
                 config = yaml.safe_load(f) or {}
 
+    # Load data paths for keys not exposed as CLI args
+    data_paths_file = os.path.join(os.path.dirname(__file__), "config", "data_paths.yaml")
+    if os.path.exists(data_paths_file):
+        with open(data_paths_file) as f:
+            data_paths = yaml.safe_load(f) or {}
+    else:
+        data_paths = {}
+
     # Preserve nested augmentation keys from YAML (e.g. RandomResizedCrop, plasma_shadow);
     # CLI flat args override only the keys they know about.
     aug_base = config.get("augmentation", {})
 
     # Map CLI args to config (CLI args take precedence)
     cli_config = {
+        "pos_ctrl_name": data_paths.get("pos_ctrl_name", "pos_ctrl_name.csv"),
+        "source_parquet": data_paths.get("source_parquet", ""),
+        "checkpoint_dir": data_paths.get("checkpoint_dir", "checkpoints"),
         "mean_std": args.mean_std,
         "debug_mode": args.debug_mode,
         "synthetic": args.synthetic,
         "resume": args.resume,
         "embedding_mode": args.embedding_mode,
-        "gradcam": args.gradcam,
         "mode": args.mode,
         "checkpoint": args.checkpoint,
         "embeddings_path": args.embeddings_path,
@@ -307,8 +317,8 @@ class BuildComponents:
             print(f"Loaded transformed embeddings from {emb_path}")
 
         else:
-            path = self.config["source_types"] + ".pq"
-            
+            path = self.config.get("source_parquet") or (self.config["source_types"] + ".pq")
+
             if os.path.exists(path):
                 print(f"Loading index from {path}")
                 self.df = pd.read_parquet(path, engine="fastparquet")
@@ -316,7 +326,8 @@ class BuildComponents:
                     self.df["Metadata_Sample_ID"] = self.df["Metadata_Sample_ID"].astype(str)
             else:
                 print(f"Index file {path} not found, building index from scratch.")
-                self.df = BuildIndex(self.config["source_types"], self.config["index"]).dataset
+                self.df = BuildIndex(self.config["source_types"], self.config["index"],
+                                     named_path=self.config.get("pos_ctrl_name", "pos_ctrl_name.csv")).dataset
                 assert self.df is not None and len(self.df) > 0, "BuildIndex returned empty dataframe"
             assert "pert_iname" in self.df.columns, "pert_iname not in DataFrame"
         return self.df
@@ -538,7 +549,7 @@ class Trainer:
             print(f"Saving checkpoint at epoch {epoch}")
             self.ckpt.save_checkpoint(self.model, epoch, self.config["architecture"], self.optimizer, loss=avg_loss)
 
-    def evaluate(self, loader, epoch, num_epochs, phase="Validation", gradcam=False, save_embeddings=False):
+    def evaluate(self, loader, epoch, num_epochs, phase="Validation", save_embeddings=False):
         self.model.eval()
         if self.config["lr_scheduler"] == "auto":
             self.optimizer.eval()
@@ -551,8 +562,6 @@ class Trainer:
         if self.config.get("return_channelwise_embeddings", False):
             print("Returning channelwise embeddings")
         emb_list, name_list, id_list, ytrue_list, ypred_list = [], [], [], [], []
-
-        selector = TopKSelector(k_correct=5, k_error=3)
 
         def _to_np1d(x, dtype=None):
             if isinstance(x, torch.Tensor):
@@ -637,19 +646,8 @@ class Trainer:
                     ytrue_list.extend(labels_np.tolist())
                     ypred_list.extend(preds_np.tolist())
 
-                if (phase == "Test") or self.config.get("records", False) or _HAS_GRADCAM and self._HAS_GRADCAM and config.get("gradcam", False):
+                if (phase == "Test") or self.config.get("records", False):
                     record_array.append(batch_records)
-
-                if _HAS_GRADCAM and self._HAS_GRADCAM and config.get("gradcam", False):
-                    B = labels_t.size(0)
-                    for j in range(B):
-                        selector.add({
-                            "ds_idx": int(idxs_np[j]),
-                            "true":   int(labels_np[j]),
-                            "pred":   int(preds_np[j]),
-                            "conf":   float(conf_class[j]),
-                            "name":   f"{batch_ids_np[j]}_{plate_ids_np[j]}_{well_ids_np[j]}",     
-                                   })
 
         if self.config.get("return_channelwise_embeddings", False) and len(emb_list) > 0 and save_embeddings:
             out_dir = os.path.join(self.ckpt.base_dir, "channelwise_embeddings")
@@ -697,38 +695,6 @@ class Trainer:
         if phase == "Test":
             self.ckpt.save_checkpoint_test(self.model, self.config["architecture"], loss=avg_loss)
             print(f"Test Loss: {avg_loss:.4f}")
-
-        if _HAS_GRADCAM and self._HAS_GRADCAM and config.get("gradcam", False):
-            
-            selected = selector.selected()
-            if selected:
-                gcv = GradCAMVisualizer(
-                    model=self.model,
-                    device=self.device,
-                    save_dir=os.path.join(self.ckpt.base_dir, "gradcam"),
-                    log_to_wandb=True,
-                    channel_names=["Mito", "AGP", "RNA", "ER", "DNA"],
-                )
-                ds = loader.dataset
-                base_ds = ds.base if hasattr(ds, "base") else ds
-
-                for rec in selected:
-                    img, lab, *_ = base_ds[rec["ds_idx"]]        # [C,H,W]
-                    # Prefer canonical sample name if available
-                    name = rec["name"]
-                    if hasattr(base_ds, "annotations"):
-                        name = str(base_ds.annotations.iloc[rec["ds_idx"]]["Metadata_Sample_ID"])
-
-                    gcv.visualize(
-                        input_tensor=img,
-                        true_label=rec["true"],
-                        pred_label=rec["pred"],
-                        original_image_name=name,
-                        target_class="true",
-                        mode=self.config.get("mode", "combined"),
-                    )
-
-
 
         if self.epochs_since_improvement >= self.early_stopping_patience:
             print(f"Early stopping triggered at epoch {epoch} — no improvement in {self.early_stopping_patience} epochs.")
@@ -778,7 +744,7 @@ def main():
 
     # When resuming from a grouped checkpoint layout (e.g. checkpoints/group/run_id/),
     # use the same parent dir so outputs land next to the original checkpoint.
-    output_dir = checkpoint_root_dir if config.get("resume", False) else "checkpoints"
+    output_dir = checkpoint_root_dir if config.get("resume", False) else config.get("checkpoint_dir", "checkpoints")
     if config.get("embedding_mode", False):
         ckpt = CheckpointManager(run_name, wandb_id, output_dir=output_dir, subfolder="linear_probing")
         ckpt._make_run_name_dir()
@@ -803,7 +769,7 @@ def main():
         test_df  = df.reset_index(drop=True)
 
     else:
-        root_dir = checkpoint_root_dir if config.get("resume", False) else "checkpoints"
+        root_dir = checkpoint_root_dir if config.get("resume", False) else config.get("checkpoint_dir", "checkpoints")
         split_manager = SplitManager(wandb.config, df, run_name, wandb_id, root_dir=root_dir)
 
         if config.get("resume", False):
@@ -900,18 +866,18 @@ def main():
                         x = x.to(trainer.device, non_blocking=True)
                         _ = trainer.model(x)               # forward only; no loss/step
                 trainer.model.eval()          
-            if trainer.evaluate(eval_loader, epoch, num_epochs, phase="Validation", gradcam=_HAS_GRADCAM and config.get("gradcam", False), save_embeddings=False):
+            if trainer.evaluate(eval_loader, epoch, num_epochs, phase="Validation", save_embeddings=False):
                 break
         print("Training complete.")
     
     elif config.get("return_channelwise_embeddings", False):
         print("Dumping channelwise embeddings for train/val splits")
         trainer.evaluate(train_loader, start_epoch, num_epochs, phase="Train",
-                         gradcam=False, save_embeddings=True)
+                         save_embeddings=True)
         trainer.evaluate(eval_loader,  start_epoch, num_epochs, phase="Validation",
-                         gradcam=False, save_embeddings=True)
+                         save_embeddings=True)
         trainer.evaluate(test_loader,  start_epoch, num_epochs, phase="Test",
-                         gradcam=False, save_embeddings=True)
+                         save_embeddings=True)
 
     else: 
         start_epoch = num_epochs
@@ -924,13 +890,13 @@ def main():
                     x = x.to(trainer.device, non_blocking=True)
                     _ = trainer.model(x)
             trainer.model.eval()
-        trainer.evaluate(test_loader, start_epoch, num_epochs, phase="Test", gradcam=_HAS_GRADCAM and config.get("gradcam", False), save_embeddings=False)
+        trainer.evaluate(test_loader, start_epoch, num_epochs, phase="Test", save_embeddings=False)
             
 
        
 
     if config["debug_mode"]:
-        shutil.rmtree(os.path.join("checkpoints", f"{run_name}_{wandb_id}"))
+        shutil.rmtree(os.path.join(config.get("checkpoint_dir", "checkpoints"), f"{run_name}_{wandb_id}"))
     wandb.finish()
 
 

@@ -1,7 +1,0 @@
-# Ablation base config with plasma_shadow only (no RandomResizedCrop).
-augmentation:
-  resize: [224, 224]
-  plasma_shadow:
-    shadow_intensity_range: [0.3, 0.7]
-    roughness: 3.0
-    prob: 0.5

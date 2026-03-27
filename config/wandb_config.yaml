@@ -1,19 +1,17 @@
-mean_std: "CELLPAINTING_3_w_NEG"   # or "IMAGENET", "CELLPAINTING_1", "MAE", "CUSTOM", #CELLPAINTING_3_w_NEG
+mean_std: "CELLPAINTING_1"   # or "IMAGENET", "CELLPAINTING_1", "MAE", "CUSTOM", #CELLPAINTING_3_w_NEG
 debug_mode: False
 synthetic: False
 resume: False
 embedding_mode: False #image -> false or embeddings -> true
-gradcam: False
-freeze: True
-mode: "combined" # "channel-wise"
+freeze: False
 checkpoint: 
-embeddings_path: "checkpoints/rare-vortex-325_5x40s102/channelwise_embeddings/transformed_embeddings.npz"
+embeddings_path: 
 records: False #for statistic
 batch_size: 64
 eval_split: 0.2
 test_split: 0.1
 num_workers: 8
-return_channelwise_embeddings: True
+return_channelwise_embeddings: False
 inference: False #run on testset
 lr: 0.001
 lr_scheduler: auto # or cosine or step
@@ -27,7 +25,7 @@ epochs: 100
 splits: batches # or wells or random or plates or batches
 seed: 12
 index: all_sources.pq
-source_types: source_3_w_neg
+source_types: source_1
 image_path:  "masterthesis/source_3/" #"images/raw/" # # "../../jumpcp/"
 augmentation:
   resize: [256, 256]

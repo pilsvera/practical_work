@@ -25,6 +25,7 @@ class ConfusionMatrixPlotter(BasePlotter):
     """
 
     def plot(self, df: pd.DataFrame, **kwargs) -> plt.Figure:
+        """Shorthand entry point — delegates to plot_confusion_matrix."""
         return self.plot_confusion_matrix(df, **kwargs)
 
     def plot_confusion_matrix(

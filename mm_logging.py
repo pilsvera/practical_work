@@ -40,15 +40,25 @@ def log_individual_channels(img_tensor, prefix="train", step=0):
         }, step=step)
 
 def get_date_time():
+    """Return the current timestamp as a YYYY-MM-DD_HH-MM-SS string."""
     dt = datetime.now()
     return dt.strftime("%Y-%m-%d_%H-%M-%S")
 
 class AssertIf:
+    """Collection of assertion helpers for path validation."""
     @staticmethod
     def _dir_exists(path: str):
         assert os.path.isdir(path), f"Directory not found: {path}"
 
 class CheckpointManager:
+    """Manages saving/loading of model checkpoints, configs, and evaluation records.
+
+    Args:
+        run_name: W&B run name.
+        wandb_id: W&B run ID.
+        output_dir: Root checkpoint directory.
+        subfolder: Optional subdirectory within the run folder.
+    """
     def __init__(self, run_name: str, wandb_id: str, output_dir: str = "checkpoints", subfolder: str = None):
         self.run_name = run_name
         self.wandb_id = wandb_id
@@ -65,6 +75,7 @@ class CheckpointManager:
 
     
     def _make_run_name_dir(self):
+        """Create the run checkpoint directory if it doesn't exist."""
         os.makedirs(self.base_dir, exist_ok=True)
         assert os.path.isdir(self.base_dir), f"Run directory wasn't created: {self.base_dir}"
 
@@ -96,6 +107,7 @@ class CheckpointManager:
             pass
         
     def save_config(self, config):
+        """Save training config as YAML and log it as a W&B artifact."""
         path = os.path.join(self.base_dir, f"{self.str_date_time}_config.yaml")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
@@ -109,6 +121,7 @@ class CheckpointManager:
         wandb.log_artifact(art)
 
     def save_checkpoint(self, model, epoch, model_class, optimizer=None, scheduler=None, loss=None, improve=False):
+        """Save model weights atomically. If improve=True, overwrites the best-model file."""
         if improve:
             checkpoint_path = os.path.join(f"{self.base_dir}", f"{model_class}_best_model.pth")
         else:
@@ -150,11 +163,13 @@ class CheckpointManager:
         print(f"All .pth files archived to {archive_path}")
 
     def save_records(self, records: np.array, phase=None):
+        """Save evaluation records (predictions, confidences, metadata) as .npy."""
         output_path = os.path.join(f"{self.base_dir}", f"{phase}_evaluation_results.npy")
         np.save(output_path, records)
         print(f"Results saved to {output_path}")
 
     def save_checkpoint_test(self, model, model_class, loss=None):
+        """Save a test-phase checkpoint (model weights + test loss only)."""
         checkpoint_path = os.path.join(f"{self.base_dir}", f"{self.str_date_time}_{model_class}_Test.pth")
         torch.save({
             'model_state_dict': model.state_dict(),

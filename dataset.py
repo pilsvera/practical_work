@@ -30,6 +30,7 @@ class BuildIndex:
         self.dataset, self.size = self.build_index()
 
     def _extract_source(self) -> pd.DataFrame:
+        """Filter the master parquet index to the requested source type(s)."""
         df = pd.read_parquet(self.index_full_path)
         if self.source_types == 'all':
             return df
@@ -61,6 +62,7 @@ class BuildIndex:
         return df
 
     def _save_encoding(self, encoder: LabelEncoder, column: str):
+        """Write a {label_string: int_id} JSON for one categorical column."""
         encoding_dict = {
             str(k): int(v)  
             for k, v in zip(encoder.classes_, encoder.transform(encoder.classes_))
@@ -85,6 +87,7 @@ class BuildIndex:
 
 
     def build_index(self) -> tuple[pd.DataFrame, int]:
+        """Build the full index: extract source, merge names, encode categoricals, save."""
         df = self._extract_source()
         df = self._merge_name(df)
         df = self._encode_categorical_to_numerical(df, 'pert_iname')
@@ -110,6 +113,7 @@ class WithIndex(Dataset):
 
     
 class SyntheticDataset(Dataset):
+    """Random tensor dataset for smoke-testing the training loop without real images."""
     def __init__(self, num_samples: int, num_classes: int, image_size=(5, 224, 224), device: str = "cpu"):
         self.num_samples = num_samples
         self.num_classes = num_classes
@@ -215,6 +219,7 @@ class TVNEmbeddingDataset(Dataset):
 
 
 class FlexibleUndersamplingStrategy:
+    """Downsamples each class to a fixed count to balance the dataset."""
     def __init__(self, per_class_count: int = None, class_specific_counts: dict = None):
         """
         Initialize the strategy.
@@ -339,20 +344,27 @@ class FiveChannelAlbumentations:
         return tensor_img # (C, H, W)
 
 
-class Splits(ABC):    
-    @abstractmethod    
-    def get_train(self):        
-        pass        
-    
-    @abstractmethod    
-    def get_eval(self):        
-        pass
-    
-    @abstractmethod    
-    def get_test(self):        
+class Splits(ABC):
+    """Base class for train/val/test splitting strategies.
+
+    Subclasses define which metadata column to group by (batch, plate, well,
+    or sample ID for random). The two-stage GroupShuffleSplit ensures that
+    all samples sharing the same group key stay in the same split.
+    """
+    @abstractmethod
+    def get_train(self):
         pass
 
-    def _split_keys(self, df: pd.DataFrame, group_column: str, eval_size: float, test_size: float, random_state: int):        
+    @abstractmethod
+    def get_eval(self):
+        pass
+
+    @abstractmethod
+    def get_test(self):
+        pass
+
+    def _split_keys(self, df: pd.DataFrame, group_column: str, eval_size: float, test_size: float, random_state: int):
+        """Two-stage GroupShuffleSplit: first train vs (val+test), then val vs test."""
         gss = GroupShuffleSplit(n_splits=1, test_size=eval_size + test_size, random_state=random_state)        
         groups = df[group_column]            
         # First split: train vs temp (eval + test)        
@@ -371,7 +383,8 @@ class Splits(ABC):
              )
         return train_df, eval_df, test_df
 
-    def _print_split_info(self, train_keys, eval_keys, test_keys):        
+    def _print_split_info(self, train_keys, eval_keys, test_keys):
+        """Log the fraction of samples in each split."""
         total_keys = len(train_keys) + len(eval_keys) + len(test_keys)        
         print("Train keys: %.2f | Eval keys: %.2f | Test keys: %.2f" % (            
             len(train_keys) / total_keys,            
@@ -380,7 +393,8 @@ class Splits(ABC):
             ))
 
 
-class BatchwiseSplits(Splits):    
+class BatchwiseSplits(Splits):
+    """Split by Metadata_Batch — no batch appears in more than one split."""
     def __init__(self, df: pd.DataFrame, eval_size: float = 0.2, test_size: float = 0.1, random_state: int = 42):        
         self.df = df        
         self.eval_size = eval_size        
@@ -402,7 +416,8 @@ class BatchwiseSplits(Splits):
     def get_test(self):        
         return self.test_df
 
-class PlatewiseSplits(Splits):    
+class PlatewiseSplits(Splits):
+    """Split by Metadata_Plate — no plate appears in more than one split."""
     def __init__(self, df: pd.DataFrame, eval_size: float = 0.2, test_size: float = 0.2, random_state: int = 42):        
         self.df = df        
         self.eval_size = eval_size        
@@ -424,7 +439,8 @@ class PlatewiseSplits(Splits):
     def get_test(self):        
         return self.test_df
 
-class WellwiseSplits(Splits):   
+class WellwiseSplits(Splits):
+    """Split by (Metadata_Plate, Metadata_Well) pair — no well appears in more than one split."""
     def __init__(self, df: pd.DataFrame, eval_size: float = 0.2, test_size: float = 0.1, random_state: int = 42):        
         self.df = df.copy()        
         self.eval_size = eval_size        
@@ -449,7 +465,8 @@ class WellwiseSplits(Splits):
         return self.test_df
 
 
-class RandomSplits(Splits):    
+class RandomSplits(Splits):
+    """Split by Metadata_Sample_ID — purely random, no group constraint."""
     def __init__(self, df: pd.DataFrame, eval_size: float = 0.2, test_size: float = 0.1, random_state: int = 42):        
         self.df = df        
         self.eval_size = eval_size        
@@ -477,6 +494,11 @@ class RandomSplits(Splits):
 
 
 class SplitManager:
+    """Creates, saves, and loads train/val/test splits.
+
+    Persists split keys (sample IDs) to split_keys.json inside the
+    checkpoint directory so that resumed runs use identical splits.
+    """
     def __init__(self, config: dict, df: pd.DataFrame, run_name: str, wandb_id: str, root_dir: str = "checkpoints"):
         self.config = config
         self.df = df
@@ -491,6 +513,7 @@ class SplitManager:
         self.path = os.path.join(base_path, "split_keys.json")
 
     def create_splits(self):
+        """Dispatch to the appropriate Splits subclass and return (train, val, test) DataFrames."""
         if self.split_strategy == "plates":
             splitter = PlatewiseSplits(self.df, self.eval_size, self.test_size, self.random_state)
         elif self.split_strategy == "wells":
@@ -505,6 +528,7 @@ class SplitManager:
         return splitter.get_train(), splitter.get_eval(), splitter.get_test()
 
     def save_split_keys(self, train_df, eval_df, test_df):
+        """Persist sample IDs for each split to split_keys.json."""
         split_info = {
             "split_strategy": self.split_strategy,
             "random_state": self.random_state,
@@ -519,6 +543,7 @@ class SplitManager:
         print(f"Split keys saved to: {self.path}")
 
     def load_split_keys(self) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """Restore train/val/test DataFrames from a previously saved split_keys.json."""
         if not os.path.exists(self.path):
             raise FileNotFoundError(f"Split keys file not found at: {self.path}")
 
@@ -531,6 +556,7 @@ class SplitManager:
         return filter_df(split_info["train_keys"]), filter_df(split_info["eval_keys"]), filter_df(split_info["test_keys"])
     
     def load_split_strategy(self) -> str:
+        """Read just the split strategy name from split_keys.json."""
         if not os.path.exists(self.path):
             raise FileNotFoundError(f"Split keys file not found at: {self.path}")
         with open(self.path, "r") as f:

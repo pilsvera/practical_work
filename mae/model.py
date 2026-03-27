@@ -7,10 +7,16 @@ import torchvision.transforms as transforms
 from torchvision.models import resnet50, ResNet50_Weights
 from PIL import Image
 import torch.nn as nn
-from huggingface_mae import MAEModel
+from .huggingface_mae import MAEModel
 
 
 class ResNet50_Modified(nn.Module):
+    """ResNet50 adapted for 5-channel Cell Painting images.
+
+    Replaces the first conv layer to accept 5 input channels and adds
+    optional channelwise embedding extraction (one forward pass per channel
+    with all others zeroed out).
+    """
     def __init__(self, num_classes, pretrained=True, freeze_encoder=False, return_channelwise_embeddings=False, embedding_mode = "joint"):
         super().__init__()
         self.return_channelwise_embeddings = return_channelwise_embeddings
@@ -64,6 +70,8 @@ class ResNet50_Modified(nn.Module):
 
 
 class ResNet50SingleChannel(nn.Module):
+    """Single-channel ResNet50 feature extractor. Used as a building block
+    for MultiChannelResNet50 (one instance per Cell Painting channel)."""
     def __init__(self, pretrained=True):
         super(ResNet50SingleChannel, self).__init__()
         self.resnet = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1 if pretrained else None)
@@ -79,6 +87,8 @@ class ResNet50SingleChannel(nn.Module):
         return x.view(x.shape[0], -1)  # Flatten (Batch, 2048)
 
 class MultiChannelResNet50(nn.Module):
+    """Five independent ResNet50 streams (one per Cell Painting channel),
+    concatenated into a single 5*2048-dim feature vector before classification."""
     def __init__(self, num_classes, pretrained =True):
         super(MultiChannelResNet50, self).__init__()
         
@@ -166,6 +176,7 @@ class OpenPhenomMAE(nn.Module):
         return embeddings
 
 class FindLayer:
+    """Utility to locate the last Conv2d layer in a model (e.g. for Grad-CAM hooks)."""
     def __init__(self, model: nn.Module):
         self.model = model
         self.last_conv_layer = self.find_last_conv_layer(self.model)
@@ -187,6 +198,7 @@ class FindLayer:
         return last_conv
 
 class LinearOnEmbeddings(nn.Module):
+    """Linear probe classifier on top of pre-computed embeddings."""
     def __init__(self, in_dim, num_classes):
         super().__init__()
 

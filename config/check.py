@@ -64,13 +64,6 @@ RULES = [
         "message": "lr_warmup_epochs is not implemented for lr_scheduler='step'. Resetting to 0.",
         "silent": True
     },
-    # GradCAM requires image tensors; it cannot be applied to pre-computed embeddings.
-    {
-        "if": {"embedding_mode": True},
-        "then": {"gradcam": False},
-        "message": "GradCAM is not applicable in embedding_mode. Setting gradcam=False.",
-        "silent": True
-    },
     # In embedding mode the model never sees raw images, so returning channelwise
     # embeddings from the image encoder is meaningless.
     {
@@ -83,11 +76,13 @@ RULES = [
 
 
 def load_config(path):
+    """Load a YAML config file and return it as a dict."""
     with open(path, 'r') as f:
         return yaml.safe_load(f)
 
 
 def load_saved_config(path):
+    """Load a saved config YAML, stripping Python object tags from old wandb dumps."""
     import re
     try:
         with open(path, "r") as f:
@@ -102,7 +97,7 @@ def load_saved_config(path):
 
 
 def get_nested(config, key_path):
-    """Access nested dictionary with dot notation."""
+    """Access a nested dict value using dot notation (e.g. 'augmentation.resize')."""
     keys = key_path.split('.')
     value = config
     for key in keys:
@@ -114,7 +109,7 @@ def get_nested(config, key_path):
 
 
 def set_nested(config, key_path, value):
-    """Set nested dictionary value with dot notation."""
+    """Set a nested dict value using dot notation, creating intermediate dicts as needed."""
     keys = key_path.split('.')
     d = config
     for key in keys[:-1]:
@@ -123,7 +118,7 @@ def set_nested(config, key_path, value):
 
 
 def check_resume(config):
-    """Check resume-related config. Returns list of error strings (not auto-fixable)."""
+    """Validate resume settings: split strategy match, config consistency. Returns error strings."""
     errors = []
     if not config.get("resume", False):
         return []
